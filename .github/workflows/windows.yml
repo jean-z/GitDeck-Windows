@@ -23,12 +23,13 @@ jobs:
         with:
           workspaces: src-tauri
 
+      # 先装依赖：tauri CLI 在 node_modules 里，图标生成要用它
+      - name: Install frontend deps
+        run: npm install --registry=https://registry.npmmirror.com
+
       # 从 icon.png 生成全套图标（含 .ico，Windows 打包必需）
       - name: Generate icons
         run: npm run tauri icon src-tauri/icons/icon.png
-
-      - name: Install frontend deps
-        run: npm install --registry=https://registry.npmmirror.com
 
       - name: Build NSIS installer
         run: npm run tauri build -- --target x86_64-pc-windows-msvc
