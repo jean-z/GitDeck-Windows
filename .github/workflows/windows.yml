@@ -1,0 +1,43 @@
+name: Build Windows Installer
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      # Rust + Rust 缓存（tauri 构建 10+ 分钟，缓存大提速）
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      # 从 icon.png 生成全套图标（含 .ico，Windows 打包必需）
+      - name: Generate icons
+        run: npm run tauri icon src-tauri/icons/icon.png
+
+      - name: Install frontend deps
+        run: npm install --registry=https://registry.npmmirror.com
+
+      - name: Build NSIS installer
+        run: npm run tauri build -- --target x86_64-pc-windows-msvc
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: GitDeck-Windows-installer
+          path: |
+            src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe
+            src-tauri/target/x86_64-pc-windows-msvc/release/bundle/msi/*.msi
+          if-no-files-found: warn
