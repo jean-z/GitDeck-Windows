@@ -981,7 +981,16 @@ export const useStore = create<AppStateStore>((set, get) => ({
       completion: () => { void get().refreshStashes(); },
     });
   },
-  async checkoutBranch(b) { await get().gitAction({ args: ["checkout", b.name] }); },
+  async checkoutBranch(b) {
+    // 远程行(origin/xxx)不能直接 checkout,否则进入游离 HEAD(提交会丢)。
+    // 改用短名走 git DWIM:本地不存在 → 自动创建跟踪分支;存在 → 直接切过去
+    if (b.isRemote) {
+      const short = b.name.slice(b.name.indexOf("/") + 1);
+      await get().gitAction({ args: ["checkout", short] });
+      return;
+    }
+    await get().gitAction({ args: ["checkout", b.name] });
+  },
   async deleteBranch(b, force) {
     await get().gitAction({
       args: ["branch", force ? "-D" : "-d", b.name],

@@ -111,6 +111,11 @@ export function BranchesView() {
           <button className="icon-btn" title="git merge --abort" onClick={abortMerge}>✕ 中止合并</button>
         </div>
       )}
+      {store.status.detached && (
+        <div className="branch-row" style={{ background: "rgba(226,116,116,.12)", borderRadius: 6, padding: "4px 8px", marginBottom: 6 }}>
+          <span style={{ color: "var(--red)", fontSize: 12 }}>⚠ 游离 HEAD（detached）：此状态下提交可能丢失，请检出上方任意本地分支回去</span>
+        </div>
+      )}
       {q && locals.length + remotes.length === 0 && (
         <div className="dim">没有匹配「{query.trim()}」的分支</div>
       )}

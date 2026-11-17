@@ -1,6 +1,6 @@
 // 平移 GitPanels.swift 的历史页：graph 列表（筛选）+ 提交详情（文件清单 + hunk 卡全套交互 + merge included）
 
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useRef, useState } from "react";
 import { useStore } from "../store";
 import { fullTime, graphTokens, messageTokens, relativeTime } from "../core/parse";
 import type { BranchInfo, CommitEntry } from "../core/types";
@@ -122,6 +122,32 @@ export function HistoryView() {
   const [authorDraft, setAuthorDraft] = useState("");
   const [pickerOpen, setPickerOpen] = useState(false);
   const [branchSearch, setBranchSearch] = useState("");
+  // 左右分栏可拖拽:宽度百分比记 localStorage(25%~75%),默认 46%
+  const splitRef = useRef<HTMLDivElement>(null);
+  const [logWidth, setLogWidth] = useState(() => {
+    const v = Number(localStorage.getItem("gitdeck.logWidth"));
+    return v >= 25 && v <= 75 ? v : 46;
+  });
+  const startDrag = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const rect = splitRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const onMove = (ev: MouseEvent) => {
+      const pct = Math.min(75, Math.max(25, ((ev.clientX - rect.left) / rect.width) * 100));
+      setLogWidth(Math.round(pct * 10) / 10);
+    };
+    const onUp = () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      setLogWidth((w) => { localStorage.setItem("gitdeck.logWidth", String(w)); return w; });
+    };
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  };
   const rows = useMemo(() => {
     const kw = store.logFilterText.trim().toLowerCase();
     const author = store.logAuthorFilter?.toLowerCase() ?? "";
@@ -157,8 +183,8 @@ export function HistoryView() {
   );
 
   return (
-    <div className="history-split">
-      <div className="log-pane">
+    <div className="history-split" ref={splitRef}>
+      <div className="log-pane" style={{ width: `${logWidth}%` }}>
         <div className="log-filters">
           <input type="text" placeholder="说明 / hash / 作者" style={{ flex: 2, minWidth: 120 }}
             value={filterDraft}
@@ -213,6 +239,7 @@ export function HistoryView() {
           )}
         </div>
       </div>
+      <div className="split-handle" onMouseDown={startDrag} title="拖动调整左右宽度" />
       <CommitDetailPane />
     </div>
   );

@@ -134,6 +134,9 @@ input[type="text"]:focus { border-color: var(--accent); }
 
 /* ---- 历史页 ---- */
 .history-split { display: flex; flex: 1; min-height: 0; }
+/* 历史页左右分栏拖拽把手 */
+.split-handle { width: 6px; margin: 0 1px; flex: none; cursor: col-resize; background: transparent; border-left: 1px solid var(--border); }
+.split-handle:hover, .split-handle:active { background: rgba(77,143,219,.35); }
 .log-pane { width: 46%; min-width: 380px; border-right: 1px solid var(--border); display: flex; flex-direction: column; }
 .log-filters { display: flex; gap: 6px; padding: 8px 10px; border-bottom: 1px solid var(--border); flex-wrap: wrap; align-items: center; }
 /* 历史页分支筛选的下拉面板:默认收起,点击展开,带搜索与本地/远程分组 */
