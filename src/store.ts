@@ -7,6 +7,7 @@ import {
   applyPatch,
   gitShowBase64,
   loadConfig,
+  pathExists,
   readTextFile,
   readFileBase64,
   runGit,
@@ -172,6 +173,11 @@ interface AppStateStore {
   removeScanDir: (path: string) => Promise<void>;
   addManualRepo: (path: string) => Promise<void>;
   hideRepo: (path: string) => Promise<void>;
+  deleteBranchWithRemote: (b: BranchInfo) => Promise<void>;
+  deleteRemoteBranch: (b: BranchInfo) => Promise<void>;
+  pull: () => Promise<void>;
+  push: () => Promise<void>;
+  fetchAll: () => Promise<void>;
 }
 
 let seq = 1;
@@ -984,6 +990,95 @@ export const useStore = create<AppStateStore>((set, get) => ({
       confirmDetail: force ? "-D 强制删除（即使未合并）。如需温和删除请用 git branch -d。" : "",
     });
   },
+  // 删除本地分支并同步删除其远端：第一步 branch -d（未合并保护，失败即中止），
+  // 第二步 push <remote> --delete。completion 里用 records[0].exitCode 判断第一步成败。
+  async deleteBranchWithRemote(b) {
+    if (!b.upstream) return;
+    const remote = b.upstream.split("/")[0];
+    const short = b.upstream.slice(remote.length + 1);
+    await get().gitAction({
+      args: ["branch", "-d", b.name],
+      dangerous: true,
+      confirmTitle: `删除本地分支 ${b.name} 并同步删除远端 ${b.upstream}？`,
+      confirmDetail: `第一步：git branch -d ${b.name}（未合并会被拒绝并中止）\n第二步：git push ${remote} --delete ${short}（远端删除后无法恢复）`,
+      completion: () => {
+        const rec = get().records[0];
+        if (!rec || rec.exitCode !== 0) return; // 本地删除失败（如未合并），不继续删远端
+        void get().gitAction({
+          args: ["push", remote, "--delete", short],
+          completion: () => {
+            void get().refreshBranches();
+            void get().refreshStatus();
+          },
+        });
+      },
+    });
+  },
+  // 直接删除远端分支（b.name 形如 origin/feature/x）
+  async deleteRemoteBranch(b) {
+    const i = b.name.indexOf("/");
+    const remote = b.name.slice(0, i);
+    const short = b.name.slice(i + 1);
+    await get().gitAction({
+      args: ["push", remote, "--delete", short],
+      dangerous: true,
+      confirmTitle: `删除远端分支 ${b.name}？`,
+      confirmDetail: `git push ${remote} --delete ${short}（远端删除后无法恢复；本地同名分支不受影响）`,
+      completion: () => {
+        void get().refreshBranches();
+      },
+    });
+  },
+
+  // ---- 顶栏快捷同步 ----
+  // completion 里用 records[0].exitCode 判断成败,补一个成功 toast
+  async pull() {
+    const s = get();
+    if (!s.selectedRepoPath || !s.status.branch || s.status.detached) {
+      s.showToast("当前不在分支上，无法拉取", true);
+      return;
+    }
+    const upstream = s.branches.find((b) => b.isCurrent)?.upstream;
+    if (!upstream) {
+      s.showToast("当前分支没有上游，请先「推送」建立跟踪", true);
+      return;
+    }
+    await s.gitAction({
+      args: ["pull"],
+      completion: () => {
+        if (get().records[0]?.exitCode === 0) get().showToast(`已拉取 ${upstream}`, false);
+        void get().refreshAll();
+      },
+    });
+  },
+  async push() {
+    const s = get();
+    if (!s.selectedRepoPath || !s.status.branch || s.status.detached) {
+      s.showToast("当前不在分支上，无法推送", true);
+      return;
+    }
+    const cur = s.branches.find((b) => b.isCurrent);
+    // 无上游的新分支:首次推送带 -u 建立跟踪
+    const args = cur?.upstream ? ["push"] : ["push", "-u", "origin", s.status.branch];
+    await s.gitAction({
+      args,
+      completion: () => {
+        if (get().records[0]?.exitCode === 0) get().showToast(cur?.upstream ? "已推送到远端" : `已推送并建立跟踪 origin/${s.status.branch}`, false);
+        void get().refreshAll();
+      },
+    });
+  },
+  async fetchAll() {
+    const s = get();
+    if (!s.selectedRepoPath) return;
+    await s.gitAction({
+      args: ["fetch", "--all"],
+      completion: () => {
+        if (get().records[0]?.exitCode === 0) get().showToast("已获取远端最新信息", false);
+        void get().refreshAll();
+      },
+    });
+  },
   async renameBranch(b, newName) { await get().gitAction({ args: ["branch", "-m", b.name, newName] }); },
 
   // ---- Toast / Confirm ----
@@ -1008,20 +1103,33 @@ export const useStore = create<AppStateStore>((set, get) => ({
     setTimeout(fire, 3800);
   },
   async cdTerminal(path) {
-    const cur = get().cwdInTerminal;
-    if (cur === path) return;
-    if (get().terminalReady) {
-      await invoke("pty_write", { data: `cd ${quoteShell(path)} && clear\n` });
-    }
+    const s = get();
+    // 未就绪时不写也不记录:避免"记录了却没写入"被去重拦掉,
+    // 终端就绪时 TerminalPane 会用当前 selectedRepoPath 主动补发一次
+    if (!s.terminalReady) return;
+    if (s.cwdInTerminal === path) return;
+    // 用 ; 而不是 &&:Windows PowerShell 5.1 不支持 && 分隔符;
+    // 结尾用 \r(回车)而不是 \n——ConPTY/PSReadLine 里 \n 只换行不执行
+    await invoke("pty_write", { data: `cd ${quoteShell(path)}; clear\r` });
     set({ cwdInTerminal: path });
   },
   setTerminalReady(v) { set({ terminalReady: v }); },
   async addScanDir(path) {
     const resolved = await resolvePathSafe(path);
     const dirs = get().config.scanDirs;
-    if (dirs.includes(resolved)) return;
+    if (dirs.includes(resolved)) {
+      get().showToast("该目录已在扫描列表中", false);
+      return;
+    }
+    let exists = true;
+    try { exists = await pathExists(resolved); } catch { exists = true; }
+    if (!exists) {
+      get().showToast(`目录不存在：${resolved}`, true);
+      return;
+    }
     await get().patchConfig({ scanDirs: [...dirs, resolved] });
     await get().reloadRepos();
+    get().showToast(`已添加扫描目录：${resolved}`, false);
   },
   async removeScanDir(path) {
     await get().patchConfig({ scanDirs: get().config.scanDirs.filter((d) => d !== path) });
@@ -1030,8 +1138,19 @@ export const useStore = create<AppStateStore>((set, get) => ({
   async addManualRepo(path) {
     const resolved = await resolvePathSafe(path);
     if (!resolved) return;
+    if (get().config.manualRepos.includes(resolved) || get().repos.some((r) => r.path === resolved)) {
+      get().showToast("该仓库已在列表中", false);
+      return;
+    }
+    let isRepo = true;
+    try { isRepo = await pathExists(`${resolved}/.git`); } catch { isRepo = true; }
+    if (!isRepo) {
+      get().showToast(`该目录不是 git 仓库（未找到 .git）：${resolved}`, true);
+      return;
+    }
     await get().patchConfig({ manualRepos: [...get().config.manualRepos, resolved] });
     await get().reloadRepos();
+    get().showToast(`已添加仓库：${resolved}`, false);
   },
   async hideRepo(path) {
     await get().patchConfig({ hiddenRepos: [...get().config.hiddenRepos, path] });

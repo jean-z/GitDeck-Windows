@@ -3,7 +3,7 @@
 import React, { useMemo, useState } from "react";
 import { useStore } from "../store";
 import { fullTime, graphTokens, messageTokens, relativeTime } from "../core/parse";
-import type { CommitEntry } from "../core/types";
+import type { BranchInfo, CommitEntry } from "../core/types";
 import { HunkCard } from "./HunkCard";
 
 function GraphPrefix({ text }: { text: string }) {
@@ -120,6 +120,8 @@ export function HistoryView() {
   const store = useStore();
   const [filterDraft, setFilterDraft] = useState("");
   const [authorDraft, setAuthorDraft] = useState("");
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [branchSearch, setBranchSearch] = useState("");
   const rows = useMemo(() => {
     const kw = store.logFilterText.trim().toLowerCase();
     const author = store.logAuthorFilter?.toLowerCase() ?? "";
@@ -136,6 +138,24 @@ export function HistoryView() {
     });
   }, [store.commitRows, store.logFilterText, store.logAuthorFilter]);
 
+  // 分支筛选:默认收起,点击展开分组+搜索面板(分支多时不再一次性全量倒出)
+  const q = branchSearch.trim().toLowerCase();
+  const hit = (name: string) => !q || name.toLowerCase().includes(q);
+  const pickerLocals = store.branches.filter((b) => !b.isRemote && hit(b.name));
+  const pickerRemotes = store.branches.filter((b) => b.isRemote && hit(b.name));
+  const applyBranch = (name: string | null) => {
+    void store.setLogFilter(store.logFilterText, store.logAuthorFilter, name, store.logFirstParentOnly);
+    setPickerOpen(false);
+    setBranchSearch("");
+  };
+  const branchRow = (b: BranchInfo) => (
+    <div key={b.name} className={`bp-row${store.logBranchFilter === b.name ? " active" : ""}`}
+      onClick={() => applyBranch(b.name)}>
+      <span>{b.isCurrent ? "✓ " : ""}{b.name}</span>
+      {b.upstream && <span className="dim" style={{ fontSize: 11 }}>→ {b.upstream}</span>}
+    </div>
+  );
+
   return (
     <div className="history-split">
       <div className="log-pane">
@@ -150,13 +170,33 @@ export function HistoryView() {
             onChange={(e) => setAuthorDraft(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter") void store.setLogFilter(filterDraft, authorDraft || null, store.logBranchFilter, store.logFirstParentOnly); }}
           />
-          <select className="btn" value={store.logBranchFilter ?? ""}
-            onChange={(e) => void store.setLogFilter(store.logFilterText, store.logAuthorFilter, e.target.value || null, store.logFirstParentOnly)}>
-            <option value="">全部分支</option>
-            {store.branches.filter((b) => !b.isRemote).map((b) => (
-              <option key={b.name} value={b.name}>{b.name}</option>
-            ))}
-          </select>
+          <div style={{ position: "relative" }}>
+            <button className="btn" title="按分支筛选（点击展开）"
+              onClick={() => setPickerOpen(!pickerOpen)}>
+              分支: {store.logBranchFilter ?? "全部"} ▾
+            </button>
+            {pickerOpen && (
+              <>
+                <div style={{ position: "fixed", inset: 0, zIndex: 25 }} onClick={() => setPickerOpen(false)} />
+                <div className="branch-picker" style={{ zIndex: 30 }}>
+                  <input type="text" placeholder="搜索分支…" autoFocus
+                    value={branchSearch} onChange={(e) => setBranchSearch(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Escape") setPickerOpen(false); }} />
+                  <div className={`bp-row${!store.logBranchFilter ? " active" : ""}`}
+                    onClick={() => applyBranch(null)}>
+                    <span>全部分支（--all）</span>
+                  </div>
+                  {pickerLocals.length > 0 && <div className="bp-group">本地分支（{pickerLocals.length}）</div>}
+                  {pickerLocals.map(branchRow)}
+                  {pickerRemotes.length > 0 && <div className="bp-group">远程分支（{pickerRemotes.length}）</div>}
+                  {pickerRemotes.map(branchRow)}
+                  {pickerLocals.length + pickerRemotes.length === 0 && (
+                    <div className="dim" style={{ padding: "4px 8px" }}>没有匹配「{branchSearch.trim()}」的分支</div>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
           <label className="checkbox-label" title="每个 merge 只显示一条，不展开被合分支内部">
             <input type="checkbox" checked={store.logFirstParentOnly}
               onChange={(e) => void store.setLogFilter(store.logFilterText, store.logAuthorFilter, store.logBranchFilter, e.target.checked)} />

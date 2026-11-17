@@ -20,15 +20,18 @@ pub struct PtyState {
 #[derive(Deserialize)]
 pub struct PtyStart {
     pub cwd: Option<String>,
+    pub rows: Option<u16>,
+    pub cols: Option<u16>,
 }
 
 #[tauri::command]
 pub fn pty_create(app: AppHandle, state: tauri::State<PtyState>, start: PtyStart) -> Result<(), String> {
     let pty_system = native_pty_system();
+    // 用前端 xterm 实际 fit 出的尺寸,避免 PTY 与画布行数不一致导致提示符错位
     let pair = pty_system
         .openpty(PtySize {
-            rows: 30,
-            cols: 110,
+            rows: start.rows.unwrap_or(30),
+            cols: start.cols.unwrap_or(110),
             pixel_width: 0,
             pixel_height: 0,
         })

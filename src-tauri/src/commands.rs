@@ -6,6 +6,8 @@ use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine;
 use serde::Serialize;
 use std::io::Read;
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::mpsc;
@@ -33,6 +35,8 @@ fn build_git_command(args: &[String], cwd: Option<&str>) -> Command {
     cmd.env("LC_ALL", "en_US.UTF-8");
     cmd.env("LANG", "en_US.UTF-8");
     cmd.env("GIT_TERMINAL_PROMPT", "0");
+    // merge 非快进时默认也不弹编辑器（GUI 内没有 TTY,弹编辑器只会卡死）
+    cmd.env("GIT_MERGE_AUTOEDIT", "no");
     #[cfg(not(windows))]
     {
         cmd.env("GIT_ASKPASS", "/bin/echo");
@@ -41,6 +45,12 @@ fn build_git_command(args: &[String], cwd: Option<&str>) -> Command {
     cmd.stdout(Stdio::piped());
     cmd.stderr(Stdio::piped());
     cmd.stdin(Stdio::null());
+    #[cfg(windows)]
+    {
+        // GUI 程序 spawn 控制台程序(git.exe)时 Windows 会分配可见控制台窗口,
+        // 造成"点击界面闪黑框";CREATE_NO_WINDOW(0x08000000) 抑制
+        cmd.creation_flags(0x0800_0000);
+    }
     if let Some(dir) = cwd {
         cmd.current_dir(dir);
     }
@@ -80,12 +90,15 @@ fn collect_output(cmd: &mut Command, timeout_ms: u64) -> GitResult {
         let status = child.wait();
         let _ = tx.send(status);
     });
-    let timed_out = rx.recv_timeout(Duration::from_millis(timeout_ms)).is_err();
+    // 注意：recv_timeout 成功时会取走状态值,必须保留下来读退出码
+    // （旧实现先 is_err() 丢弃、事后 try_recv 拿不到,导致成功命令的退出码恒为 -1,
+    //   前端 code!==0 的守卫全部失效——分支/状态/历史永远不刷新）
+    let wait_result = rx.recv_timeout(Duration::from_millis(timeout_ms));
 
     let stdout = String::from_utf8_lossy(&out_handle.join().unwrap_or_default()).into_owned();
     let stderr = String::from_utf8_lossy(&err_handle.join().unwrap_or_default()).into_owned();
 
-    if timed_out {
+    if wait_result.is_err() {
         return GitResult {
             code: -2,
             stdout,
@@ -94,7 +107,7 @@ fn collect_output(cmd: &mut Command, timeout_ms: u64) -> GitResult {
         };
     }
     GitResult {
-        code: rx.try_recv().ok().and_then(|r| r.ok()).and_then(|s| s.code()).unwrap_or(-1),
+        code: wait_result.ok().and_then(|r| r.ok()).and_then(|s| s.code()).unwrap_or(-1),
         stdout,
         stderr,
         timed_out: false,
@@ -265,6 +278,12 @@ pub fn resolve_path(raw: String) -> String {
     let home = dirs_home().unwrap_or_default();
     let expanded = raw.replacen("~", &home.to_string_lossy(), 1);
     Path::new(&expanded).components().collect::<PathBuf>().to_string_lossy().into_owned()
+}
+
+/// 判断路径是否存在（扫描目录 / 仓库路径有效性校验）
+#[tauri::command]
+pub fn path_exists(path: String) -> bool {
+    Path::new(&path).exists()
 }
 
 #[tauri::command]

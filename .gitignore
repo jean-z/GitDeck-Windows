@@ -4,3 +4,6 @@ src-tauri/target/
 src-tauri/gen/
 *.log
 .DS_Store
+# 图标由 CI 每次构建时用 npm run tauri icon 现场生成,只保留源 icon.png
+src-tauri/icons/*
+!src-tauri/icons/icon.png

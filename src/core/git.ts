@@ -60,3 +60,7 @@ export async function scanRepos(scanDirs: string[], manual: string[], hidden: st
 export async function resolvePath(raw: string): Promise<string> {
   return invoke<string>("resolve_path", { raw });
 }
+
+export async function pathExists(path: string): Promise<boolean> {
+  return invoke<boolean>("path_exists", { path });
+}

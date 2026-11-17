@@ -66,6 +66,13 @@ export function App() {
                 branch.detached ? `· detached ${branch.branch}` : `${branch.branch}${branch.ahead ? ` ↑${branch.ahead}` : ""}${branch.behind ? ` ↓${branch.behind}` : ""}`
               ) : "未选择仓库"}
             </div>
+            {/* 快捷同步:平铺按钮,免下拉 */}
+            <button className="btn" title="git pull" disabled={!store.selectedRepoPath}
+              onClick={() => void store.pull()}>⬇ 拉取</button>
+            <button className="btn" title="git push（新分支首次自动 -u 建立跟踪）" disabled={!store.selectedRepoPath}
+              onClick={() => void store.push()}>⬆ 推送</button>
+            <button className="btn" title="git fetch --all" disabled={!store.selectedRepoPath}
+              onClick={() => void store.fetchAll()}>⤓ 获取</button>
           </div>
           <div className="tab-body">
             {store.currentTab === "changes" && <ChangesView />}

@@ -50,11 +50,13 @@ fn find_in_path(name: &str) -> bool {
 
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .manage(pty::PtyState::default())
         .invoke_handler(tauri::generate_handler![
             commands::run_git,
             commands::apply_patch,
             commands::scan_repos,
+            commands::path_exists,
             commands::read_file_text,
             commands::read_file_base64,
             commands::git_show_base64,

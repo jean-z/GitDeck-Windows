@@ -13,7 +13,7 @@ git 内核逻辑（diff 解析 / 上下文展开 / 行级回退补丁）从 Swif
   - 块级回滚（git apply -R）、图片 before/after 对比、巨型 diff 截断保护（3000 行）
 - 历史页：`--graph` 彩色提交列表、关键字/作者/分支/仅第一父级筛选、提交详情、
   merge 提交的被合入提交三种口径（分支自己 / 全部引入历史 / 主线视角）
-- 分支页：检出 / 重命名 / 删除（-d，未合并保护）；Stash 页：push/pop/apply/drop
+- 分支页：检出 / 合并到当前分支（冲突时可一键中止）/ 重命名 / 删除（-d，未合并保护）/ 搜索；Stash 页：push/pop/apply/drop
 - 内嵌终端：xterm.js + ConPTY（portable-pty），PowerShell；切仓库自动 cd
 - 🎓 练习模式：所有操作只复制 git 命令不执行（与 macOS 版一致）
 - 事件式刷新：终端里敲完 git 命令回车，面板自动跟随（0.8s / 3.5s 双次兜底）

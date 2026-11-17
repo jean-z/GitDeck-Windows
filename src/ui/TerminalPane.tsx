@@ -63,13 +63,22 @@ export function TerminalPane() {
       unlisten2 = await listen("pty-exit", () => {
         term.writeln("\x1b[31mshell 已退出\x1b[0m");
       });
-      // 启动 pty（默认 shell；首个仓库目录）
-      await invoke("pty_create", { start: { cwd: cwd ?? null } });
+      // 启动 pty（默认 shell；首个仓库目录；尺寸用实际 fit 结果,避免行数不一致错位）
+      fit.fit();
+      await invoke("pty_create", {
+        start: { cwd: cwd ?? null, rows: term.rows, cols: term.cols },
+      });
       readyRef.current = true;
       store.setTerminalReady(true);
-      // shell 就绪欢迎语（平移 GitDeck 的欢迎信息）
+      // 等待 pty 启动期间布局可能已变化,就绪后立即同步一次真实尺寸
+      fit.fit();
+      void invoke("pty_resize", { rows: term.rows, cols: term.cols });
+      // 就绪后冲刷一次 cd:补偿启动竞态(pty 启动早于 init()/selectRepo 完成,
+      // 期间 selectRepo 的 cdTerminal 因未就绪被跳过)
+      const cur = useStore.getState();
+      if (cur.selectedRepoPath) await store.cdTerminal(cur.selectedRepoPath);
+      // shell 就绪欢迎语（cd 之后输出，停在仓库目录）
       term.write('echo "GitDeck 终端就绪 👋  git 命令直接在这里练"\r');
-      if (cwd) await store.cdTerminal(cwd);
     })();
 
     return () => {
